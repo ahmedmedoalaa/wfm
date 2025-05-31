@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Schedule Search</title>
+  <style>
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: linear-gradient(135deg, #e0f7fa, #f1f8e9);
+      color: #333;
+      margin: 0;
+      padding: 0;
+    }
+
+    .container {
+      max-width: 1200px;
+      margin: 40px auto;
+      padding: 20px;
+    }
+
+    h1 {
+      color: #2c3e50;
+      text-align: center;
+      margin-bottom: 30px;
+    }
+
+    .filters-card {
+      background: white;
+      border-radius: 10px;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+      padding: 20px;
+      margin-bottom: 25px;
+    }
+
+    .filters {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 20px;
+      justify-content: space-between;
+    }
+
+    .filter-group {
+      flex: 1 1 180px;
+      display: flex;
+      flex-direction: column;
+    }
+
+    label {
+      margin-bottom: 6px;
+      font-weight: 600;
+      color: #34495e;
+    }
+
+    select, button {
+      padding: 8px;
+      border-radius: 6px;
+      border: 1px solid #ccc;
+      font-size: 15px;
+      transition: all 0.3s ease;
+    }
+
+    select:hover, select:focus {
+      border-color: #26a69a;
+      outline: none;
+    }
+
+    button {
+      background: #26a69a;
+      color: white;
+      font-weight: 600;
+      border: none;
+      margin-top: auto;
+      cursor: pointer;
+    }
+
+    button:hover {
+      background: #2bbbad;
+    }
+
+    button:disabled {
+      background: #b2dfdb;
+      cursor: not-allowed;
+    }
+
+    #results {
+      background: white;
+      border-radius: 10px;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+      padding: 20px;
+      opacity: 0;
+      transition: opacity 0.4s ease;
+    }
+
+    #results.visible {
+      opacity: 1;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 10px;
+      font-size: 15px;
+    }
+
+    th, td {
+      text-align: left;
+      padding: 12px;
+      border-bottom: 1px solid #e0e0e0;
+    }
+
+    th {
+      background: #26a69a;
+      color: white;
+      cursor: pointer;
+    }
+
+    tr:nth-child(even) {
+      background-color: #f9f9f9;
+    }
+
+    tr:hover {
+      background-color: #f1f1f1;
+    }
+
+    .no-results {
+      text-align: center;
+      color: #888;
+      padding: 25px 0;
+      font-size: 18px;
+    }
+
+    .spinner {
+      border: 4px solid #f3f3f3;
+      border-top: 4px solid #26a69a;
+      border-radius: 50%;
+      width: 32px;
+      height: 32px;
+      animation: spin 1s linear infinite;
+      margin: 30px auto;
+    }
+
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+
+    th.sorted-asc::after {
+      content: " ▲";
+    }
+
+    th.sorted-desc::after {
+      content: " ▼";
+    }
+  </style>
+</head>
+<body>
+
+<div class="container">
+  <h1>Search Schedules</h1>
+
+  <div class="filters-card">
+    <div class="filters">
+      <div class="filter-group">
+        <label for="agentFilter">Agent Name</label>
+        <select id="agentFilter"><option value="">All</option></select>
+      </div>
+      <div class="filter-group">
+        <label for="dateFilter">Date</label>
+        <select id="dateFilter"><option value="">All</option></select>
+      </div>
+      <div class="filter-group">
+        <label for="teamLeaderFilter">Team Leader</label>
+        <select id="teamLeaderFilter"><option value="">All</option></select>
+      </div>
+      <div class="filter-group">
+        <label for="skillFilter">Skill</label>
+        <select id="skillFilter"><option value="">All</option></select>
+      </div>
+      <div class="filter-group">
+        <label for="monthFilter">Month</label>
+        <select id="monthFilter"><option value="">All</option></select>
+      </div>
+      <div class="filter-group">
+        <label for="sortFilter">Sort By</label>
+        <select id="sortFilter">
+          <option value="agent_name">Agent Name</option>
+          <option value="shift">Shift</option>
+        </select>
+      </div>
+      <div class="filter-group">
+        <button id="clearFiltersBtn">Clear Filters</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="results" aria-live="polite" aria-atomic="true">
+    <p class="no-results">Loading schedules...</p>
+  </div>
+</div>
+
+<script>
+let currentSort = 'agent_name';
+let isLoading = false;
+
+function setLoading(state) {
+  isLoading = state;
+  const selects = document.querySelectorAll('.filters select');
+  selects.forEach(s => s.disabled = state);
+  document.getElementById('clearFiltersBtn').disabled = state;
+
+  const resultsDiv = document.getElementById('results');
+  if (state) {
+    resultsDiv.innerHTML = '<div class="spinner" role="status" aria-label="Loading"></div>';
+    resultsDiv.classList.remove('visible');
+  }
+}
+
+async function fetchFilterOptions() {
+  const params = new URLSearchParams({
+    agent: document.getElementById('agentFilter').value,
+    date: document.getElementById('dateFilter').value,
+    team_leader: document.getElementById('teamLeaderFilter').value,
+    skill: document.getElementById('skillFilter').value,
+    month: document.getElementById('monthFilter').value
+  });
+  const res = await fetch('/filter-options?' + params.toString());
+  if (!res.ok) return null;
+  return await res.json();
+}
+
+function populateSelect(selectElem, options, labelFunc = x => x, valueFunc = x => x) {
+  const previousValue = selectElem.value;
+  selectElem.innerHTML = '<option value="">All</option>';
+  options.forEach(opt => {
+    const option = document.createElement('option');
+    if (typeof opt === 'object') {
+      option.value = valueFunc(opt);
+      option.textContent = labelFunc(opt);
+    } else {
+      option.value = opt;
+      option.textContent = opt;
+    }
+    selectElem.appendChild(option);
+  });
+  if ([...selectElem.options].some(o => o.value === previousValue)) {
+    selectElem.value = previousValue;
+  }
+}
+
+async function updateFilters(changedFilter) {
+  setLoading(true);
+  const data = await fetchFilterOptions();
+  if (!data) {
+    alert('Error loading filter options.');
+    setLoading(false);
+    return;
+  }
+
+  if (changedFilter !== 'agent') populateSelect(document.getElementById('agentFilter'), data.agents);
+  if (changedFilter !== 'date') populateSelect(document.getElementById('dateFilter'), data.dates);
+  if (changedFilter !== 'team_leader') populateSelect(document.getElementById('teamLeaderFilter'), data.team_leaders);
+  if (changedFilter !== 'skill') populateSelect(document.getElementById('skillFilter'), data.skills);
+  if (changedFilter !== 'month') {
+    populateSelect(
+      document.getElementById('monthFilter'),
+      data.months,
+      item => item.name,
+      item => item.value
+    );
+  }
+  setLoading(false);
+  updateResults();
+}
+
+async function updateResults() {
+  setLoading(true);
+  const params = new URLSearchParams({
+    agent: document.getElementById('agentFilter').value,
+    date: document.getElementById('dateFilter').value,
+    team_leader: document.getElementById('teamLeaderFilter').value,
+    skill: document.getElementById('skillFilter').value,
+    month: document.getElementById('monthFilter').value,
+    sort: document.getElementById('sortFilter').value,
+  });
+  const res = await fetch('/filtered-results?' + params.toString());
+  if (!res.ok) {
+    alert('Failed to load results.');
+    setLoading(false);
+    return;
+  }
+  const html = await res.text();
+  const resultsDiv = document.getElementById('results');
+  resultsDiv.innerHTML = html.trim() ? html : '<p class="no-results">No schedules found.</p>';
+  resultsDiv.classList.add('visible');
+  setLoading(false);
+  highlightSortedColumn();
+}
+
+function highlightSortedColumn() {
+  const sortValue = document.getElementById('sortFilter').value;
+  currentSort = sortValue;
+  const ths = document.querySelectorAll('#results table th');
+  ths.forEach(th => {
+    th.classList.remove('sorted-asc', 'sorted-desc');
+    if (th.dataset.sort === sortValue) {
+      th.classList.add('sorted-asc');
+    }
+  });
+}
+
+document.getElementById('clearFiltersBtn').addEventListener('click', () => {
+  ['agentFilter', 'dateFilter', 'teamLeaderFilter', 'skillFilter', 'monthFilter'].forEach(id => {
+    document.getElementById(id).value = '';
+  });
+  document.getElementById('sortFilter').value = 'agent_name';
+  updateFilters(null);
+});
+
+['agentFilter', 'dateFilter', 'teamLeaderFilter', 'skillFilter', 'monthFilter', 'sortFilter'].forEach(id => {
+  document.getElementById(id).addEventListener('change', () => {
+    updateFilters(id.replace('Filter', '').toLowerCase());
+  });
+});
+
+window.addEventListener('DOMContentLoaded', () => {
+  updateFilters(null);
+});
+</script>
+
+</body>
+</html>

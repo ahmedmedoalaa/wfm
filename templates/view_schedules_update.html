@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>{{ table_name | default('Schedules Update') }} Records</title>
+    <style>
+        table, th, td { border: 1px solid black; border-collapse: collapse; padding: 5px; }
+        th { background-color: #f2f2f2; }
+        .error { color: red; font-weight: bold; }
+        .success { color: green; font-weight: bold; }
+        .no-data { color: #555; font-style: italic; }
+        select, button { padding: 5px; margin: 5px; }
+        .delete-btn { background-color: #ff4444; color: white; border: none; cursor: pointer; }
+        .delete-btn:hover { background-color: #cc0000; }
+        #message { margin: 10px 0; }
+    </style>
+    <script>
+        async function deleteAgentRecords(agent) {
+            if (!confirm(`Delete all records for ${agent} from schedules_update?`)) return;
+
+            const messageDiv = document.getElementById('message');
+            messageDiv.innerHTML = '';
+
+            try {
+                const response = await fetch('/delete-schedules-update', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: `agent=${encodeURIComponent(agent)}`
+                });
+                const data = await response.json();
+
+                if (data.status === 'success') {
+                    messageDiv.innerHTML = `<p class="success">${data.message}</p>`;
+                    // Refresh the table
+                    const tableResponse = await fetch(`/view-schedules-update?agent=`);
+                    const tableHtml = await tableResponse.text();
+                    document.body.innerHTML = tableHtml;
+                } else {
+                    messageDiv.innerHTML = `<p class="error">${data.error}</p>`;
+                }
+            } catch (error) {
+                messageDiv.innerHTML = `<p class="error">Error: ${error.message}</p>`;
+            }
+        }
+    </script>
+</head>
+<body>
+    <h2>{{ table_name | default('Schedules Update') }} Records</h2>
+    {% if error %}
+        <p class="error">{{ error }}</p>
+    {% endif %}
+    {% if message %}
+        <p class="success">{{ message | replace('%20', ' ') }}</p>
+    {% endif %}
+    <div id="message"></div>
+    
+    <!-- Filter Form -->
+    <form method="GET" action="/view-schedules-update">
+        <label for="agent">Filter by Agent Name:</label>
+        <select name="agent" id="agent" onchange="this.form.submit()">
+            <option value="">All Agents</option>
+            {% for agent in agents %}
+                <option value="{{ agent }}" {% if agent == agent_filter %}selected{% endif %}>{{ agent }}</option>
+            {% endfor %}
+        </select>
+    </form>
+    
+    {% if agent_filter %}
+        <p>Filtered by Agent: {{ agent_filter }}</p>
+        <button class="delete-btn" onclick="deleteAgentRecords('{{ agent_filter | replace("'", "\\'") }}')">Delete All Records for This Agent</button>
+    {% endif %}
+    
+    <table aria-label="{{ table_name | default('Schedules Update') }} records">
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Code</th>
+                <th>Agent Name</th>
+                <th>Email</th>
+                <th>Gender</th>
+                <th>Batch</th>
+                <th>Skill</th>
+                <th>Seniority</th>
+                <th>Team Leader</th>
+                <th>Date</th>
+                <th>Shift</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% if rows|length > 0 %}
+                {% for r in rows %}
+                    <tr>
+                        <td>{{ r.id }}</td>
+                        <td>{{ r.code }}</td>
+                        <td>{{ r.agent_name }}</td>
+                        <td>{{ r.email }}</td>
+                        <td>{{ r.gender }}</td>
+                        <td>{{ r.batch }}</td>
+                        <td>{{ r.skill }}</td>
+                        <td>{{ r.seniority }}</td>
+                        <td>{{ r.team_leader }}</td>
+                        <td>{{ r.date }}</td>
+                        <td>{{ r.shift }}</td>
+                    </tr>
+                {% endfor %}
+            {% else %}
+                <tr>
+                    <td colspan="11" class="no-data">
+                        No records found in {{ table_name | default('Schedules Update') }}
+                        {% if agent_filter %}for agent '{{ agent_filter }}'{% endif %}
+                    </td>
+                </tr>
+            {% endif %}
+        </tbody>
+    </table>
+    <p><a href="/">Back to Home</a></p>
+</body>
+</html>

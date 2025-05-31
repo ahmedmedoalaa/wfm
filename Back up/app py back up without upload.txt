@@ -1,0 +1,178 @@
+from flask import Flask, request, jsonify, render_template_string
+from werkzeug.utils import secure_filename
+import pandas as pd
+import os
+from datetime import datetime
+from calendar import month_name
+from sqlalchemy import extract             # <-- NEW
+from db_config import SessionLocal
+from models import Schedule
+
+app = Flask(__name__)
+app.secret_key = "supersecretkey"
+app.config['UPLOAD_FOLDER'] = 'uploads'
+os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+
+
+# ------------- helpers -------------------------------------------------------
+def normalize_schedule_excel(df: pd.DataFrame) -> list[dict]:
+    static_cols = ["Code", "Agent Name", "Email", "Gender",
+                   "Batch", "Skill", "Seniority", "Team Leader"]
+    date_cols = [c for c in df.columns if c not in static_cols]
+
+    out: list[dict] = []
+    for _, r in df.iterrows():
+        for dc in date_cols:
+            try:
+                day = pd.to_datetime(dc).date()
+            except Exception:
+                continue
+            out.append(
+                {
+                    "code": str(r["Code"]),
+                    "agent_name": r["Agent Name"],
+                    "email": r["Email"],
+                    "gender": r["Gender"],
+                    "batch": r["Batch"],
+                    "skill": r["Skill"],
+                    "seniority": r["Seniority"],
+                    "team_leader": r["Team Leader"],
+                    "date": day,
+                    "shift": r[dc],
+                }
+            )
+    return out
+
+
+# ------------- UI pages / uploads --------------------------------------------
+@app.route('/')
+def home():
+    return """
+    <h1>WFM App</h1>
+    <ul>
+        <li><a href="/upload-form">Upload Schedule</a></li>
+        <li><a href="/view-db">View All Schedules</a></li>
+        <li><a href="/search">Search Schedules</a></li>
+    </ul>
+    """
+
+@app.route('/search')
+def search():
+    return render_template_string(open("templates/search.html").read())
+
+
+# ----------- dynamic filter options ------------------------------------------
+@app.route('/filter-options')
+def filter_options():
+    filt_agent = request.args.get('agent')
+    filt_date  = request.args.get('date')
+    filt_lead  = request.args.get('team_leader')
+    filt_skill = request.args.get('skill')
+    filt_month = request.args.get('month')      # numeric string 1-12 or ''
+
+    session = SessionLocal()
+    q = session.query(Schedule)
+
+    if filt_agent:
+        q = q.filter(Schedule.agent_name == filt_agent)
+    if filt_date:
+        try:
+            q = q.filter(Schedule.date == datetime.strptime(filt_date, "%Y-%m-%d").date())
+        except ValueError:
+            pass
+    if filt_lead:
+        q = q.filter(Schedule.team_leader == filt_lead)
+    if filt_skill:
+        q = q.filter(Schedule.skill == filt_skill)
+    if filt_month:
+        try:
+            month_int = int(filt_month)
+            q = q.filter(extract('month', Schedule.date) == month_int)   # <-- FIX
+        except ValueError:
+            session.close()
+            return jsonify({"error": "Bad month value"}), 400
+
+    rows = q.all()
+    session.close()
+
+    def uniq(field):
+        return sorted({getattr(r, field) for r in rows})
+
+    months_list = sorted({r.date.month for r in rows})
+    months = [{"value": m, "name": month_name[m]} for m in months_list]
+
+    return jsonify(
+        {
+            "agents":       uniq("agent_name"),
+            "dates":        [str(d) for d in uniq("date")],
+            "team_leaders": uniq("team_leader"),
+            "skills":       uniq("skill"),
+            "months":       months,
+        }
+    )
+
+
+# ----------- filtered results table ------------------------------------------
+@app.route('/filtered-results')
+def filtered_results():
+    agent = request.args.get('agent')
+    date  = request.args.get('date')
+    lead  = request.args.get('team_leader')
+    skill = request.args.get('skill')
+    month = request.args.get('month')
+    sort  = request.args.get('sort', 'agent_name')
+
+    session = SessionLocal()
+    q = session.query(Schedule)
+
+    if agent:
+        q = q.filter(Schedule.agent_name == agent)
+    if date:
+        try:
+            q = q.filter(Schedule.date == datetime.strptime(date, "%Y-%m-%d").date())
+        except ValueError:
+            pass
+    if lead:
+        q = q.filter(Schedule.team_leader == lead)
+    if skill:
+        q = q.filter(Schedule.skill == skill)
+    if month:
+        try:
+            month_int = int(month)
+            q = q.filter(extract('month', Schedule.date) == month_int)   # <-- FIX
+        except ValueError:
+            pass
+
+    # sort safely
+    if sort == 'shift':
+        q = q.order_by(Schedule.shift, Schedule.agent_name)
+    else:                    # default or 'agent_name'
+        q = q.order_by(Schedule.agent_name, Schedule.date)
+
+    rows = q.all()
+    session.close()
+
+    html = (
+        "<table border='1' aria-label='Filtered schedules'>"
+        "<thead><tr>"
+        "<th data-sort='date'>Date</th>"
+        "<th data-sort='agent_name'>Agent Name</th>"
+        "<th>Skill</th>"
+        "<th data-sort='shift'>Shift</th>"
+        "</tr></thead><tbody>"
+    )
+    for r in rows:
+        html += (
+            f"<tr><td>{r.date}</td><td>{r.agent_name}</td>"
+            f"<td>{r.skill}</td><td>{r.shift}</td></tr>"
+        )
+    html += "</tbody></table>"
+    return html
+
+
+# (upload / duplicate / view-db routes remain unchanged…)
+# -----------------------------------------------------------------------------
+
+
+if __name__ == "__main__":
+    app.run(debug=True)

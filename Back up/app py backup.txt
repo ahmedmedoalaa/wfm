@@ -1,0 +1,185 @@
+from flask import Flask, request, jsonify, render_template_string
+from werkzeug.utils import secure_filename
+import pandas as pd
+import os
+from datetime import datetime
+from db_config import SessionLocal
+from models import Schedule
+
+app = Flask(__name__)
+app.secret_key = "supersecretkey"
+app.config['UPLOAD_FOLDER'] = 'uploads'
+
+if not os.path.exists(app.config['UPLOAD_FOLDER']):
+    os.makedirs(app.config['UPLOAD_FOLDER'])
+
+def normalize_schedule_excel(df):
+    static_columns = ["Code", "Agent Name", "Email", "Gender", "Batch", "Skill", "Seniority", "Team Leader"]
+    date_columns = [col for col in df.columns if col not in static_columns]
+    long_data = []
+    for _, row in df.iterrows():
+        for day_col in date_columns:
+            try:
+                parsed_date = pd.to_datetime(day_col).date()
+            except:
+                continue
+            long_data.append({
+                "code": str(row["Code"]),
+                "agent_name": row["Agent Name"],
+                "email": row["Email"],
+                "gender": row["Gender"],
+                "batch": row["Batch"],
+                "skill": row["Skill"],
+                "seniority": row["Seniority"],
+                "team_leader": row["Team Leader"],
+                "date": parsed_date,
+                "shift": row[day_col]
+            })
+    return long_data
+
+@app.route('/')
+def home():
+    return '''
+    <h1>WFM App</h1>
+    <ul>
+      <li><a href="/upload-form">Upload Schedule</a></li>
+      <li><a href="/view-db">View All Schedules</a></li>
+      <li><a href="/search">Search Schedules</a></li>
+    </ul>
+    '''
+
+@app.route('/upload-form')
+def upload_form():
+    return '''
+    <h1>Upload Excel</h1>
+    <form id="uploadForm" method="post" enctype="multipart/form-data">
+      <input type="file" name="file" required>
+      <button type="submit">Upload</button>
+    </form>
+    <script>
+    document.getElementById('uploadForm').addEventListener('submit', async function(e) {
+        e.preventDefault();
+        const file = document.querySelector('[name=file]').files[0];
+        const formData = new FormData();
+        formData.append('file', file);
+        const check = await fetch('/check-duplicates', { method: 'POST', body: formData });
+        const result = await check.json();
+        if (result.duplicates > 0) {
+            const overwrite = confirm(result.duplicates + ' duplicates found. Overwrite?');
+            if (!overwrite) return;
+            await fetch('/upload?force=true', { method: 'POST', body: formData });
+        } else {
+            await fetch('/upload', { method: 'POST', body: formData });
+        }
+        alert("Done");
+        window.location.href = '/view-db';
+    });
+    </script>
+    '''
+
+@app.route('/check-duplicates', methods=['POST'])
+def check_duplicates():
+    file = request.files.get('file')
+    if not file or not file.filename.endswith('.xlsx'):
+        return jsonify({'error': 'Invalid file'}), 400
+    df = pd.read_excel(file)
+    try:
+        normalized = normalize_schedule_excel(df)
+        session = SessionLocal()
+        count = sum(session.query(Schedule).filter_by(agent_name=row["agent_name"], date=row["date"]).first() is not None for row in normalized)
+        session.close()
+        return jsonify({'duplicates': count})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/upload', methods=['POST'])
+def upload_schedule():
+    force = request.args.get('force') == 'true'
+    file = request.files.get('file')
+    if not file or not file.filename.endswith('.xlsx'):
+        return jsonify({'error': 'Invalid file'}), 400
+    try:
+        df = pd.read_excel(file)
+        normalized = normalize_schedule_excel(df)
+        session = SessionLocal()
+        duplicates = [entry for entry in normalized if session.query(Schedule).filter_by(agent_name=entry["agent_name"], date=entry["date"]).first()]
+        if duplicates and not force:
+            session.close()
+            return jsonify({'error': f'{len(duplicates)} duplicates found.', 'duplicates': len(duplicates)}), 409
+        if force:
+            for entry in duplicates:
+                session.query(Schedule).filter_by(agent_name=entry["agent_name"], date=entry["date"]).delete()
+        for entry in normalized:
+            session.add(Schedule(**entry))
+        session.commit()
+        session.close()
+        return jsonify({'message': 'Upload complete.'})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/view-db')
+def view_db_schedule():
+    session = SessionLocal()
+    schedules = session.query(Schedule).all()
+    session.close()
+    html = "<h2>All Schedules</h2><table border='1'><tr><th>Agent</th><th>Date</th><th>Shift</th><th>Code</th><th>Email</th><th>Gender</th><th>Batch</th><th>Skill</th><th>Seniority</th><th>Team Leader</th></tr>"
+    for s in schedules:
+        html += f"<tr><td>{s.agent_name}</td><td>{s.date}</td><td>{s.shift}</td><td>{s.code}</td><td>{s.email}</td><td>{s.gender}</td><td>{s.batch}</td><td>{s.skill}</td><td>{s.seniority}</td><td>{s.team_leader}</td></tr>"
+    html += "</table><br><a href='/'>Back</a>"
+    return html
+
+@app.route('/search')
+def search():
+    return render_template_string(open("templates/search.html").read())
+
+@app.route('/filter-options')
+def filter_options():
+    filters = {
+        'agent_name': request.args.get('agent'),
+        'date': request.args.get('date'),
+        'team_leader': request.args.get('team_leader'),
+        'skill': request.args.get('skill')
+    }
+    session = SessionLocal()
+    query = session.query(Schedule)
+    for key, val in filters.items():
+        if val:
+            column = getattr(Schedule, key)
+            query = query.filter(column == val)
+    filtered = query.all()
+    session.close()
+    def get_unique(field):
+        return sorted({getattr(f, field) for f in filtered})
+    return jsonify({
+        'agents': get_unique('agent_name'),
+        'dates': [str(d) for d in get_unique('date')],
+        'team_leaders': get_unique('team_leader'),
+        'skills': get_unique('skill'),
+    })
+
+@app.route('/filtered-results')
+def filtered_results():
+    agent = request.args.get('agent')
+    date = request.args.get('date')
+    leader = request.args.get('team_leader')
+    skill = request.args.get('skill')
+    session = SessionLocal()
+    query = session.query(Schedule)
+    if agent:
+        query = query.filter(Schedule.agent_name == agent)
+    if date:
+        query = query.filter(Schedule.date == datetime.strptime(date, "%Y-%m-%d").date())
+    if leader:
+        query = query.filter(Schedule.team_leader == leader)
+    if skill:
+        query = query.filter(Schedule.skill == skill)
+    results = query.all()
+    session.close()
+    html = "<table border='1'><tr><th>Agent</th><th>Date</th><th>Shift</th><th>Code</th><th>Email</th><th>Gender</th><th>Batch</th><th>Skill</th><th>Seniority</th><th>Team Leader</th></tr>"
+    for s in results:
+        html += f"<tr><td>{s.agent_name}</td><td>{s.date}</td><td>{s.shift}</td><td>{s.code}</td><td>{s.email}</td><td>{s.gender}</td><td>{s.batch}</td><td>{s.skill}</td><td>{s.seniority}</td><td>{s.team_leader}</td></tr>"
+    html += "</table>"
+    return html
+
+if __name__ == '__main__':
+    app.run(debug=True)

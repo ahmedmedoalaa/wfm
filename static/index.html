@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>WFM Dashboard (JS)</title>
+    <script defer src="app.js"></script>
+</head>
+<body>
+    <h1>📊 Workforce Management</h1>
+
+    <h2>Upload Schedule</h2>
+    <form id="uploadForm">
+        <input type="file" id="excelFile" name="file" required>
+        <button type="submit">Upload</button>
+        <label><input type="checkbox" id="forceOverwrite"> Force overwrite</label>
+    </form>
+    <p id="uploadMessage"></p>
+
+    <hr>
+
+    <h2>Search Schedule</h2>
+    <label>Agent:
+        <select id="agentDropdown"><option value="">-- All --</option></select>
+    </label>
+    <label>Date:
+        <select id="dateDropdown"><option value="">-- All --</option></select>
+    </label>
+    <button onclick="searchSchedules()">Search</button>
+
+    <div id="searchResults"></div>
+
+    <hr>
+
+    <h2>All Schedules</h2>
+    <button onclick="loadAllSchedules()">Refresh Table</button>
+    <div id="allSchedules"></div>
+</body>
+</html>

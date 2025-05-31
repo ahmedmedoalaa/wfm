@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>All Schedules</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        table { width: 100%; border-collapse: collapse; font-size: 14px; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+        th { background-color: #f2f2f2; }
+        tr:nth-child(even) { background-color: #f9f9f9; }
+        h2 { margin-bottom: 20px; }
+    </style>
+</head>
+<body>
+    <h2>All Schedule Records</h2>
+    <table>
+        <tr>
+            <th>ID</th>
+            <th>Code</th>
+            <th>Agent Name</th>
+            <th>Email</th>
+            <th>Gender</th>
+            <th>Batch</th>
+            <th>Skill</th>
+            <th>Seniority</th>
+            <th>Team Leader</th>
+            <th>Date</th>
+            <th>Shift</th>
+        </tr>
+        {% for r in rows %}
+        <tr>
+            <td>{{ r.id }}</td>
+            <td>{{ r.code }}</td>
+            <td>{{ r.agent_name }}</td>
+            <td>{{ r.email }}</td>
+            <td>{{ r.gender }}</td>
+            <td>{{ r.batch }}</td>
+            <td>{{ r.skill }}</td>
+            <td>{{ r.seniority }}</td>
+            <td>{{ r.team_leader }}</td>
+            <td>{{ r.date }}</td>
+            <td>{{ r.shift }}</td>
+        </tr>
+        {% endfor %}
+    </table>
+    <p><a href="/">Back to Home</a></p>
+</body>
+</html>

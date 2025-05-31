@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>WFM App Dashboard</title>
+</head>
+<body>
+    <h1>📊 Workforce Management Dashboard</h1>
+    
+    <ul>
+        <li><strong>Upload Schedule:</strong>
+            <form action="/upload?force=true" method="post" enctype="multipart/form-data">
+                <input type="file" name="file" required>
+                <button type="submit">Upload Excel</button>
+            </form>
+            <p>Format: Columns must be <code>agent_name</code>, <code>date</code>, <code>shift</code></p>
+        </li>
+
+        <li><strong>View All Schedules:</strong> 
+            <a href="/view-db" target="_blank">Open Table</a>
+        </li>
+
+        <li><strong>Search Schedules:</strong> 
+            <a href="/search" target="_blank">Search by Agent/Date</a>
+        </li>
+    </ul>
+
+    <hr>
+    <p><em>Tip:</em> If upload detects duplicates, use <code>?force=true</code> to overwrite them.</p>
+</body>
+</html>
